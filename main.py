@@ -1,3 +1,4 @@
+import re  # এই লাইনটি যোগ করুন
 import time
 import requests
 from telegram import Update
@@ -127,7 +128,7 @@ def escape_md(text: str) -> str:
     return re.sub(r"([_*\[\]()~`>#+\-=|{}.!])", r"\\\1", text)
 
 def main():
-    application = ApplicationBuilder().token("7749823654:AAFnw3PiCgLEDCQqR9Htmhw8AXU2fLEB6vE").build()
+    application = ApplicationBuilder().token("YOUR_TOKEN").build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('add', add)],
