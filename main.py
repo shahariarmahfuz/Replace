@@ -7,7 +7,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 ANIME, SEASON = range(2)
 
 # API URLs
-FIRST_API_URL = "https://b15638c8-af87-4164-b831-414c185be4c8-00-3o5w0isf9c16d.pike.replit.dev/up"
+FIRST_API_URL = "https://replaceup-production.up.railway.app/up"
 SECOND_API_URL = "https://nekofilx.onrender.com/re"
 
 async def start(update: Update, context):
