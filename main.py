@@ -3,23 +3,23 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ConversationHandler
 
-# কনভারসেশন স্টেটস
-ANIME, SEASON = range(2)
+# Conversation States
+ANIME, SEASON, CONFIRM = range(3)
 
 # API URLs
 FIRST_API_URL = "https://replaceup-production.up.railway.app/up"
 SECOND_API_URL = "https://nekofilx.onrender.com/re"
 
 async def start(update: Update, context):
-    await update.message.reply_text("হ্যালো! এনিমি ভিডিও আপলোড করতে /add কমান্ড ব্যবহার করুন।")
+    await update.message.reply_text("Hello! Use /add to upload anime episodes.")
 
 async def add(update: Update, context):
-    await update.message.reply_text("এনিমি নাম্বারটি দিন:")
+    await update.message.reply_text("📌 *Enter the anime number:*", parse_mode="MarkdownV2")
     return ANIME
 
 async def anime_number(update: Update, context):
     context.user_data['anime'] = update.message.text
-    await update.message.reply_text("সিজন নাম্বারটি দিন:")
+    await update.message.reply_text("📌 *Enter the season number:*", parse_mode="MarkdownV2")
     return SEASON
 
 async def season_number(update: Update, context):
@@ -27,16 +27,34 @@ async def season_number(update: Update, context):
     anime = context.user_data['anime']
     season = context.user_data['season']
 
-    # প্রথম API থেকে ডেটা fetch করা
+    # Ask for confirmation
+    await update.message.reply_text(
+        f"✅ *Are you sure you want to upload this anime?*\n\n"
+        f"🎭 *Anime:* `{anime}`\n"
+        f"📆 *Season:* `{season}`\n\n"
+        f"⚡ *To start uploading, send /send*\n"
+        f"❌ *To cancel, send /cancel*",
+        parse_mode="MarkdownV2"
+    )
+
+    return CONFIRM
+
+async def send(update: Update, context):
+    anime = context.user_data.get('anime')
+    season = context.user_data.get('season')
+
+    if not anime or not season:
+        await update.message.reply_text("⚠️ *No active request found, please try again using /add.*", parse_mode="MarkdownV2")
+        return ConversationHandler.END
+
+    # Fetch data from API
     response = requests.get(f"https://nekofilx.onrender.com/get?anime={anime}&s={season}")
     if response.status_code == 200:
         data = response.json()
         episodes = data.get('videos', [])
-
-        # এপিসোডগুলিকে সিরিয়াল অনুযায়ী সাজানো (ছোট থেকে বড়)
         episodes.sort(key=lambda x: x['episode'])
 
-        await update.message.reply_text(f"মোট {len(episodes)} টি এপিসোড পাওয়া গেছে। প্রক্রিয়া শুরু হচ্ছে...")
+        await update.message.reply_text(f"🔄 Found `{len(episodes)}` episodes. Uploading started...", parse_mode="MarkdownV2")
 
         successful_episodes = []
         failed_episodes = []
@@ -46,60 +64,61 @@ async def season_number(update: Update, context):
             hd_link = episode['links']['720p']
             sd_link = episode['links']['480p']
 
-            # প্রথম API এ রিকোয়েস্ট পাঠানো
+            # Request to first API
             first_api_response = requests.get(f"{FIRST_API_URL}?hd={hd_link}&sd={sd_link}")
             if first_api_response.status_code == 200:
                 first_api_data = first_api_response.json()
                 new_hd_link = first_api_data['links']['hd'].replace("&raw=1", "@raw=1")
                 new_sd_link = first_api_data['links']['sd'].replace("&raw=1", "@raw=1")
 
-                # দ্বিতীয় API এ রিকোয়েস্ট পাঠানো
+                # Request to second API
                 second_api_response = requests.get(f"{SECOND_API_URL}?a={anime}&s={season}&e={episode_number}&720p={new_hd_link}&480p={new_sd_link}")
                 if second_api_response.status_code == 200:
                     second_api_data = second_api_response.json()
                     if second_api_data['status'] == "success":
                         successful_episodes.append(episode_number)
                         await update.message.reply_text(
-                            f"এনিমি: {second_api_data['anime']}\n"
-                            f"সিজন: {second_api_data['season']}\n"
-                            f"এপিসোড: {second_api_data['episode']}\n"
-                            f"720p লিংক: {second_api_data['links']['720p']}\n"
-                            f"480p লিংক: {second_api_data['links']['480p']}\n"
-                            f"এই এপিসোড সফলভাবে আপলোড হয়েছে।"
+                            f"🎭 *Anime:* `{second_api_data['anime']}`\n"
+                            f"📆 *Season:* `{second_api_data['season']}`\n"
+                            f"🎬 *Episode:* `{second_api_data['episode']}`\n\n"
+                            f"🔹 *720p:* [Download Link]({second_api_data['links']['720p']})\n"
+                            f"🔹 *480p:* [Download Link]({second_api_data['links']['480p']})\n\n"
+                            f"> ✅ *This episode has been successfully uploaded!*",
+                            parse_mode="MarkdownV2"
                         )
                     else:
                         failed_episodes.append(episode_number)
-                        await update.message.reply_text(f"এপিসোড {episode_number} আপলোড করতে সমস্যা হয়েছে।")
+                        await update.message.reply_text(f"❌ *Failed to upload episode {episode_number}!*", parse_mode="MarkdownV2")
                 else:
                     failed_episodes.append(episode_number)
-                    await update.message.reply_text(f"দ্বিতীয় API তে রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে।")
+                    await update.message.reply_text(f"⚠️ *Error occurred in the second API!*", parse_mode="MarkdownV2")
             else:
                 failed_episodes.append(episode_number)
-                await update.message.reply_text(f"প্রথম API তে রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে।")
+                await update.message.reply_text(f"⚠️ *Error occurred in the first API!*", parse_mode="MarkdownV2")
 
-            # ৫ সেকেন্ড বিরতি
+            # Wait for 5 seconds before the next request
             time.sleep(5)
 
-        # সকল এপিসোড আপলোড হওয়ার পর সারসংক্ষেপ মেসেজ পাঠানো
-        summary_message = "সকল এপিসোড আপলোড সম্পন্ন হয়েছে।\n\n"
+        # Send summary
+        summary_message = "✅ *All episodes have been uploaded successfully!*\n\n"
         if successful_episodes:
-            summary_message += f"সফলভাবে আপলোড হওয়া এপিসোড: {', '.join(map(str, successful_episodes))}\n"
+            summary_message += f"✔️ *Success:* `{', '.join(map(str, successful_episodes))}`\n"
         if failed_episodes:
-            summary_message += f"ব্যর্থ হওয়া এপিসোড: {', '.join(map(str, failed_episodes))}\n"
+            summary_message += f"❌ *Failed:* `{', '.join(map(str, failed_episodes))}`\n"
 
-        await update.message.reply_text(summary_message)
+        await update.message.reply_text(summary_message, parse_mode="MarkdownV2")
 
     else:
-        await update.message.reply_text("দুঃখিত, ডেটা পাওয়া যায়নি।")
+        await update.message.reply_text("❌ *No data found!*", parse_mode="MarkdownV2")
 
     return ConversationHandler.END
 
 async def cancel(update: Update, context):
-    await update.message.reply_text("কমান্ড বাতিল করা হয়েছে।")
+    await update.message.reply_text("❌ *Your request has been canceled!*", parse_mode="MarkdownV2")
     return ConversationHandler.END
 
 def main():
-    # টেলিগ্রাম টোকেন ব্যবহার করে অ্যাপ্লিকেশন তৈরি
+    # Create bot application using Telegram Token
     application = ApplicationBuilder().token("7749823654:AAFnw3PiCgLEDCQqR9Htmhw8AXU2fLEB6vE").build()
 
     conv_handler = ConversationHandler(
@@ -107,6 +126,10 @@ def main():
         states={
             ANIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, anime_number)],
             SEASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, season_number)],
+            CONFIRM: [
+                CommandHandler('send', send),
+                CommandHandler('cancel', cancel),
+            ],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
