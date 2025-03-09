@@ -1,142 +1,192 @@
 import time
 import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ConversationHandler
+from telegram.constants import ParseMode
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ConversationHandler,
+    ContextTypes
+)
 
-# Conversation States
-ANIME, SEASON, CONFIRM = range(3)
+# Conversation states
+ANIME, SEASON, CONFIRMATION = range(3)
 
 # API URLs
 FIRST_API_URL = "https://replaceup-production.up.railway.app/up"
 SECOND_API_URL = "https://nekofilx.onrender.com/re"
 
-async def start(update: Update, context):
-    await update.message.reply_text("Hello! Use /add to upload anime episodes.")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Start command handler"""
+    await update.message.reply_text(
+        "Hello! Use /add command to upload anime videos."
+    )
 
-async def add(update: Update, context):
-    await update.message.reply_text("📌 *Enter the anime number:*", parse_mode="MarkdownV2")
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start anime upload process"""
+    await update.message.reply_text("🎌 Enter anime number:")
     return ANIME
 
-async def anime_number(update: Update, context):
+async def anime_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store anime number"""
     context.user_data['anime'] = update.message.text
-    await update.message.reply_text("📌 *Enter the season number:*", parse_mode="MarkdownV2")
+    await update.message.reply_text("📂 Enter season number:")
     return SEASON
 
-async def season_number(update: Update, context):
+async def season_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Store season number and show confirmation"""
     context.user_data['season'] = update.message.text
     anime = context.user_data['anime']
     season = context.user_data['season']
-
-    # Ask for confirmation
-    await update.message.reply_text(
-        f"✅ *Are you sure you want to upload this anime?*\n\n"
-        f"🎭 *Anime:* `{anime}`\n"
-        f"📆 *Season:* `{season}`\n\n"
-        f"⚡ *To start uploading, send /send*\n"
-        f"❌ *To cancel, send /cancel*",
-        parse_mode="MarkdownV2"
+    
+    confirm_text = (
+        f"📝 You're about to upload:\n\n"
+        f"• Anime: `{anime}`\n"
+        f"• Season: `{season}`\n\n"
+        f"✅ Confirm with /send\n"
+        f"❌ Cancel with /cancel"
     )
+    
+    await update.message.reply_text(
+        confirm_text,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
+    return CONFIRMATION
 
-    return CONFIRM
-
-async def send(update: Update, context):
-    anime = context.user_data.get('anime')
-    season = context.user_data.get('season')
-
-    if not anime or not season:
-        await update.message.reply_text("⚠️ *No active request found, please try again using /add.*", parse_mode="MarkdownV2")
-        return ConversationHandler.END
-
-    # Fetch data from API
-    response = requests.get(f"https://nekofilx.onrender.com/get?anime={anime}&s={season}")
-    if response.status_code == 200:
+async def send_episodes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Start episode processing"""
+    user_data = context.user_data
+    anime = user_data['anime']
+    season = user_data['season']
+    
+    try:
+        response = requests.get(f"https://nekofilx.onrender.com/get?anime={anime}&s={season}")
+        response.raise_for_status()
         data = response.json()
-        episodes = data.get('videos', [])
-        episodes.sort(key=lambda x: x['episode'])
+        
+        episodes = sorted(data.get('videos', []), key=lambda x: x['episode'])
+        total_episodes = len(episodes)
+        
+        await update.message.reply_text(
+            f"🔎 Found {total_episodes} episodes\n"
+            f"⏳ Starting processing..."
+        )
+        
+        successful, failed = await process_episodes(update, anime, season, episodes)
+        
+        summary = (
+            f"📊 **Upload Summary**\n\n"
+            f"✅ Success: {len(successful)}\n"
+            f"❌ Failed: {len(failed)}\n\n"
+            f"Successful episodes: {', '.join(map(str, successful)) if successful else 'None'}\n"
+            f"Failed episodes: {', '.join(map(str, failed)) if failed else 'None'}"
+        )
+        
+        await update.message.reply_text(summary)
+        
+    except Exception as e:
+        await handle_error(update, e)
+    
+    return ConversationHandler.END
 
-        await update.message.reply_text(f"🔄 Found `{len(episodes)}` episodes. Uploading started...", parse_mode="MarkdownV2")
-
-        successful_episodes = []
-        failed_episodes = []
-
-        for episode in episodes:
-            episode_number = episode['episode']
+async def process_episodes(update, anime, season, episodes):
+    """Process episodes helper function"""
+    successful = []
+    failed = []
+    
+    for episode in episodes:
+        ep_num = episode['episode']
+        try:
+            # Process first API
             hd_link = episode['links']['720p']
             sd_link = episode['links']['480p']
+            
+            first_res = requests.get(f"{FIRST_API_URL}?hd={hd_link}&sd={sd_link}")
+            first_res.raise_for_status()
+            
+            # Update links
+            new_hd = first_res.json()['links']['hd'].replace("&raw=1", "@raw=1")
+            new_sd = first_res.json()['links']['sd'].replace("&raw=1", "@raw=1")
+            
+            # Process second API
+            params = {
+                'a': anime,
+                's': season,
+                'e': ep_num,
+                '720p': new_hd,
+                '480p': new_sd
+            }
+            second_res = requests.get(SECOND_API_URL, params=params)
+            second_res.raise_for_status()
+            
+            # Send success message
+            data = second_res.json()
+            await send_success_message(update, data)
+            successful.append(ep_num)
+            
+        except Exception as e:
+            await update.message.reply_text(f"⚠️ Error in episode {ep_num}: {str(e)}")
+            failed.append(ep_num)
+        
+        time.sleep(5)
+    
+    return successful, failed
 
-            # Request to first API
-            first_api_response = requests.get(f"{FIRST_API_URL}?hd={hd_link}&sd={sd_link}")
-            if first_api_response.status_code == 200:
-                first_api_data = first_api_response.json()
-                new_hd_link = first_api_data['links']['hd'].replace("&raw=1", "@raw=1")
-                new_sd_link = first_api_data['links']['sd'].replace("&raw=1", "@raw=1")
+async def send_success_message(update, data):
+    """Format success message"""
+    message = (
+        f"✨ **Successfully Uploaded**\n\n"
+        f"• Anime: `{data['anime']}`\n"
+        f"• Season: `{data['season']}`\n"
+        f"• Episode: `{data['episode']}`\n\n"
+        f"🔗 [720p Link]({data['links']['720p']})\n"
+        f"🔗 [480p Link]({data['links']['480p']})"
+    )
+    await update.message.reply_text(
+        message,
+        parse_mode=ParseMode.MARKDOWN_V2,
+        disable_web_page_preview=True
+    )
 
-                # Request to second API
-                second_api_response = requests.get(f"{SECOND_API_URL}?a={anime}&s={season}&e={episode_number}&720p={new_hd_link}&480p={new_sd_link}")
-                if second_api_response.status_code == 200:
-                    second_api_data = second_api_response.json()
-                    if second_api_data['status'] == "success":
-                        successful_episodes.append(episode_number)
-                        await update.message.reply_text(
-                            f"🎭 *Anime:* `{second_api_data['anime']}`\n"
-                            f"📆 *Season:* `{second_api_data['season']}`\n"
-                            f"🎬 *Episode:* `{second_api_data['episode']}`\n\n"
-                            f"🔹 *720p:* [Download Link]({second_api_data['links']['720p']})\n"
-                            f"🔹 *480p:* [Download Link]({second_api_data['links']['480p']})\n\n"
-                            f"> ✅ *This episode has been successfully uploaded!*",
-                            parse_mode="MarkdownV2"
-                        )
-                    else:
-                        failed_episodes.append(episode_number)
-                        await update.message.reply_text(f"❌ *Failed to upload episode {episode_number}!*", parse_mode="MarkdownV2")
-                else:
-                    failed_episodes.append(episode_number)
-                    await update.message.reply_text(f"⚠️ *Error occurred in the second API!*", parse_mode="MarkdownV2")
-            else:
-                failed_episodes.append(episode_number)
-                await update.message.reply_text(f"⚠️ *Error occurred in the first API!*", parse_mode="MarkdownV2")
+async def handle_error(update, error):
+    """Error handling"""
+    error_msg = (
+        f"🚨 **Error Occurred**\n\n"
+        f"`{str(error)}`\n\n"
+        f"Please try again."
+    )
+    await update.message.reply_text(
+        error_msg,
+        parse_mode=ParseMode.MARKDOWN_V2
+    )
 
-            # Wait for 5 seconds before the next request
-            time.sleep(5)
-
-        # Send summary
-        summary_message = "✅ *All episodes have been uploaded successfully!*\n\n"
-        if successful_episodes:
-            summary_message += f"✔️ *Success:* `{', '.join(map(str, successful_episodes))}`\n"
-        if failed_episodes:
-            summary_message += f"❌ *Failed:* `{', '.join(map(str, failed_episodes))}`\n"
-
-        await update.message.reply_text(summary_message, parse_mode="MarkdownV2")
-
-    else:
-        await update.message.reply_text("❌ *No data found!*", parse_mode="MarkdownV2")
-
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancel conversation"""
+    await update.message.reply_text("❌ Process cancelled")
+    context.user_data.clear()
     return ConversationHandler.END
 
-async def cancel(update: Update, context):
-    await update.message.reply_text("❌ *Your request has been canceled!*", parse_mode="MarkdownV2")
-    return ConversationHandler.END
-
-def main():
-    # Create bot application using Telegram Token
+def main() -> None:
+    """Application setup"""
     application = ApplicationBuilder().token("7749823654:AAFnw3PiCgLEDCQqR9Htmhw8AXU2fLEB6vE").build()
-
+    
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('add', add)],
         states={
             ANIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, anime_number)],
             SEASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, season_number)],
-            CONFIRM: [
-                CommandHandler('send', send),
-                CommandHandler('cancel', cancel),
-            ],
+            CONFIRMATION: [
+                CommandHandler('send', send_episodes),
+                CommandHandler('cancel', cancel)
+            ]
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
-
+    
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
-
     application.run_polling()
 
 if __name__ == '__main__':
