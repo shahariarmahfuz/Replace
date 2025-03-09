@@ -1,4 +1,4 @@
-import re  # এই লাইনটি যোগ করুন
+import re
 import time
 import requests
 from telegram import Update
@@ -12,7 +12,7 @@ from telegram.ext import (
     ContextTypes
 )
 
-# কনভারসেশন স্টেটস
+# Conversation states
 ANIME, SEASON, CONFIRM = range(3)
 
 # API URLs
@@ -21,16 +21,16 @@ SECOND_API_URL = "https://nekofilx.onrender.com/re"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "হ্যালো! এনিমি ভিডিও আপলোড করতে /add কমান্ড ব্যবহার করুন।"
+        "Hello! Use the /add command to upload anime videos."
     )
 
 async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("এনিমি নাম্বারটি দিন:")
+    await update.message.reply_text("Enter the anime number:")
     return ANIME
 
 async def anime_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['anime'] = update.message.text
-    await update.message.reply_text("সিজন নাম্বারটি দিন:")
+    await update.message.reply_text("Enter the season number:")
     return SEASON
 
 async def season_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -45,14 +45,14 @@ async def season_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['episodes'] = episodes
         
         message = (
-            f"Found {len(episodes)} episodes\\!\n"
+            f"Found {len(episodes)} episodes!\n"
             f"Confirm upload with /send\n"
             f"Cancel with /cancel"
         )
         await update.message.reply_text(message)
         return CONFIRM
     else:
-        await update.message.reply_text("ডেটা পাওয়া যায়নি ❌")
+        await update.message.reply_text("Failed to fetch data ❌")
         return ConversationHandler.END
 
 async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,7 +60,7 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     season = context.user_data['season']
     episodes = context.user_data['episodes']
 
-    await update.message.reply_text("আপলোড শুরু হচ্ছে...")
+    await update.message.reply_text("Starting upload...")
 
     successful = []
     failed = []
@@ -90,7 +90,7 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Format success message
             response_data = second_api.json()
             message = (
-                f"*_{escape_md(response_data['anime'])}_*\n"
+                f"_{escape_md(response_data['anime'])}_\n"
                 f"**Season:** {escape_md(str(response_data['season']))}\n"
                 f"**Episode:** {escape_md(str(response_data['episode']))}\n\n"
                 f"[720p Link]({escape_md(response_data['links']['720p'])})\n"
@@ -112,19 +112,21 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Send summary
     summary = (
-        f"*Upload Complete* ✅\n\n"
-        f"Success: {len(successful)}\n"
-        f"Failed: {len(failed)}"
+        f"📊 **Upload Summary**\n\n"
+        f"✅ Success: {len(successful)}\n"
+        f"❌ Failed: {len(failed)}\n\n"
+        f"Successful episodes: {', '.join(map(str, successful)) if successful else 'None'}\n"
+        f"Failed episodes: {', '.join(map(str, failed)) if failed else 'None'}"
     )
     await update.message.reply_text(summary, parse_mode=ParseMode.MARKDOWN_V2)
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("প্রক্রিয়া বাতিল করা হয়েছে ❌")
+    await update.message.reply_text("Process canceled ❌")
     return ConversationHandler.END
 
 def escape_md(text: str) -> str:
-    """Markdown V2 special characters escaper"""
+    """Escape Markdown V2 special characters"""
     return re.sub(r"([_*\[\]()~`>#+\-=|{}.!])", r"\\\1", text)
 
 def main():
