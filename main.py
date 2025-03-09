@@ -32,7 +32,14 @@ async def season_number(update: Update, context):
     if response.status_code == 200:
         data = response.json()
         episodes = data.get('videos', [])
+
+        # এপিসোডগুলিকে সিরিয়াল অনুযায়ী সাজানো (ছোট থেকে বড়)
+        episodes.sort(key=lambda x: x['episode'])
+
         await update.message.reply_text(f"মোট {len(episodes)} টি এপিসোড পাওয়া গেছে। প্রক্রিয়া শুরু হচ্ছে...")
+
+        successful_episodes = []
+        failed_episodes = []
 
         for episode in episodes:
             episode_number = episode['episode']
@@ -51,6 +58,7 @@ async def season_number(update: Update, context):
                 if second_api_response.status_code == 200:
                     second_api_data = second_api_response.json()
                     if second_api_data['status'] == "success":
+                        successful_episodes.append(episode_number)
                         await update.message.reply_text(
                             f"এনিমি: {second_api_data['anime']}\n"
                             f"সিজন: {second_api_data['season']}\n"
@@ -60,14 +68,26 @@ async def season_number(update: Update, context):
                             f"এই এপিসোড সফলভাবে আপলোড হয়েছে।"
                         )
                     else:
+                        failed_episodes.append(episode_number)
                         await update.message.reply_text(f"এপিসোড {episode_number} আপলোড করতে সমস্যা হয়েছে।")
                 else:
+                    failed_episodes.append(episode_number)
                     await update.message.reply_text(f"দ্বিতীয় API তে রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে।")
             else:
+                failed_episodes.append(episode_number)
                 await update.message.reply_text(f"প্রথম API তে রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে।")
 
             # ৫ সেকেন্ড বিরতি
             time.sleep(5)
+
+        # সকল এপিসোড আপলোড হওয়ার পর সারসংক্ষেপ মেসেজ পাঠানো
+        summary_message = "সকল এপিসোড আপলোড সম্পন্ন হয়েছে।\n\n"
+        if successful_episodes:
+            summary_message += f"সফলভাবে আপলোড হওয়া এপিসোড: {', '.join(map(str, successful_episodes))}\n"
+        if failed_episodes:
+            summary_message += f"ব্যর্থ হওয়া এপিসোড: {', '.join(map(str, failed_episodes))}\n"
+
+        await update.message.reply_text(summary_message)
 
     else:
         await update.message.reply_text("দুঃখিত, ডেটা পাওয়া যায়নি।")
@@ -80,7 +100,7 @@ async def cancel(update: Update, context):
 
 def main():
     # টেলিগ্রাম টোকেন ব্যবহার করে অ্যাপ্লিকেশন তৈরি
-    application = ApplicationBuilder().token("7749823654:AAFnw3PiCgLEDCQqR9Htmhw8AXU2fLEB6vE").build()
+    application = ApplicationBuilder().token("7867830008:AAF1hgq5liyBgGn3ATOXQ-vMyo5KFVi4MnE").build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('add', add)],
