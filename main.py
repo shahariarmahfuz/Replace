@@ -90,11 +90,11 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Format success message
             response_data = second_api.json()
             message = (
-                f"_{escape_md(response_data['anime'])}_\n"
-                f"**Season:** {escape_md(str(response_data['season']))}\n"
-                f"**Episode:** {escape_md(str(response_data['episode']))}\n\n"
-                f"[720p Link]({escape_md(response_data['links']['720p'])})\n"
-                f"[480p Link]({escape_md(response_data['links']['480p'])})\n\n"
+                f"_Anime: {escape_md(response_data['anime'])}_\n\n"
+                f"*Season:* {escape_md(str(response_data['season']))}\n"
+                f"*Episode:* {escape_md(str(response_data['episode']))}\n\n"
+                f"*720p Link* : [view Link]({escape_md(response_data['links']['720p'])})\n"
+                f"*480p Link* : [view Link]({escape_md(response_data['links']['480p'])})\n\n"
                 "> This anime has been uploaded successfully ✅"
             )
             
@@ -112,7 +112,7 @@ async def confirm_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Send summary
     summary = (
-        f"📊 **Upload Summary**\n\n"
+        f"📊 *Upload Summary*\n\n"
         f"✅ Success: {len(successful)}\n"
         f"❌ Failed: {len(failed)}\n\n"
         f"Successful episodes: {', '.join(map(str, successful)) if successful else 'None'}\n"
